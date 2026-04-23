@@ -42,6 +42,7 @@ class GBM:
         
         log_S = np.cumsum(increment, axis=1)
         paths_array = self.S0 * np.exp(log_S)  # convert log returns to price paths
+        paths_array = np.hstack((self.S0 * np.ones((paths, 1)), paths_array))  # add initial price
 
         if show:
             plt.figure(figsize=(10, 6))
@@ -54,3 +55,6 @@ class GBM:
 
         return paths_array
     
+
+gbm = GBM(S0=100, mu=0.10, sigma=0.20, T=1.0, N=252, seed=42)
+gbm.simulate(paths=100, show=True)
