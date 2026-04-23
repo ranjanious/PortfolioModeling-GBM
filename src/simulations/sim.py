@@ -2,13 +2,16 @@ from models.gbm import GBM
 from utils.util import value_at_risk, paths_to_returns, extract_daily_open, csv_to_numpy_with_dates
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 
 
-def compare_hist_to_gbm(file: str, show: bool = True) -> None:
+
+def compare_hist_to_gbm(file: str, num_sims: int = 500, show: bool = True) -> None:
     """Compare historical stock price data to a simulated GBM path.
 
     Args:
         file (str): The path to the CSV file containing historical stock price data.
+        num_sims (int, optional): Number of simulated paths. Defaults to 500.
         show (bool, optional): Whether to display the plot. Defaults to True.
     """
     
@@ -42,7 +45,7 @@ def compare_hist_to_gbm(file: str, show: bool = True) -> None:
     # Simulate GBM for the last year
     S0 = open_prices[idx_1y_start]
     gbm = GBM(S0=S0, mu=mean_return, sigma=volatility, T=1.0, N=trading_days)
-    simulated_paths = gbm.simulate(paths=500, show=False)
+    simulated_paths = gbm.simulate(paths=num_sims, show=False)
 
     
 
@@ -51,21 +54,40 @@ def compare_hist_to_gbm(file: str, show: bool = True) -> None:
         plt.figure(figsize=(12, 6))
         # Use a colormap for colorful faded paths
         cmap = plt.get_cmap('tab20', simulated_paths.shape[0])
+        simulated_returns = paths_to_returns(simulated_paths)
+        var_95 = value_at_risk(simulated_returns, confidence_level=0.95)
+        # Find the path closest to the 95% VaR
+        var_idx = np.argmin(np.abs(simulated_returns + var_95))
+        var_area_color = 'blue'
+        # Draw all simulated paths
         for i in range(simulated_paths.shape[0]):
             plt.plot(
                 dates[idx_1y_start:],
                 simulated_paths[i][1:],
-                color=cmap(i),
+                color=cmap(i) if i != var_idx else cmap(i),
                 alpha=0.15,
                 linewidth=1
             )
+
+        # Draw a horizontal VaR area at the final value of the VaR path
+        var_final_value = simulated_paths[var_idx, -1]
+        plt.fill_between(
+            dates[idx_1y_start:],
+            0,
+            var_final_value,
+            color=var_area_color,
+            alpha=0.3,
+            zorder=5,
+            label='VaR Area'
+        )
         # Plot the expected value (mean path)
         mean_path = np.mean(simulated_paths, axis=0)
         plt.plot(dates[idx_1y_start:], mean_path[1:], color='tab:red', alpha=0.7, linewidth=2, label='Expected Value (Mean Path)')
         # Plot actual last year prices
         plt.plot(dates[idx_1y_start:], open_prices[idx_1y_start:], label='Historical Last Year', color='tab:blue')
-        # Plot all simulated paths
-        plt.title('Historical Last Year vs Simulated GBM Paths')
+        # Extract stock name from file path (e.g., 'AAPL' from 'AAPL_daily_5y.csv')
+        stock_name = os.path.basename(file).split('_')[0].upper()
+        plt.title(f'{stock_name}: Historical Last Year vs Simulated GBM Paths')
         plt.xlabel('Date')
         plt.ylabel('Price')
         plt.legend()
@@ -75,5 +97,24 @@ def compare_hist_to_gbm(file: str, show: bool = True) -> None:
         for label in ax.get_xticklabels():
             label.set_rotation(45)
         plt.tight_layout()
-        plt.show()
+        # Save the plot instead of showing it
+        output_dir = os.path.join(os.path.dirname(__file__), '../tests')
+        os.makedirs(output_dir, exist_ok=True)
+        output_path = os.path.join(output_dir, f'{stock_name}_gbm_simulation_plot.png')
+        plt.savefig(output_path)
+        print(f"Plot saved to {output_path}")
 
+
+    #metrics
+    actual_returns = paths_to_returns(open_prices[idx_1y_start:].reshape(1, -1))
+    simulated_returns = paths_to_returns(simulated_paths)
+    
+    print(f"Actual last year return: {actual_returns.mean():.4f}")
+    print(f"Simulated last year return: {simulated_returns.mean():.4f}")
+    print(f"Simulated last year VaR (95%): {value_at_risk(simulated_returns, confidence_level=0.95):.4f}")
+
+    print("difference in mean return:", abs(actual_returns.mean() - simulated_returns.mean()))
+
+for file in ['../data/AAPL_daily_5y.csv', '../data/MSFT_daily_5y.csv', '../data/GOOGL_daily_5y.csv', '../data/MSFT_daily_5y.csv', '../data/TSLA_daily_5y.csv']:
+    print(f"\nComparing historical data to GBM simulation for {file}...")
+    compare_hist_to_gbm(file, num_sims=1000)
