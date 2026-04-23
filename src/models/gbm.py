@@ -1,6 +1,6 @@
 import numpy as np
 import random
-from utils.util import random_normal, random_uniform, random_bernoulli
+from utils.util import random_normal
 import matplotlib.pyplot as plt
 
 class GBM:
@@ -55,6 +55,11 @@ class GBM:
 
         return paths_array
     
+    def expected_return(self) -> float:
+        """Calculate the expected return of the GBM process.
 
-gbm = GBM(S0=100, mu=0.10, sigma=0.20, T=1.0, N=252, seed=42)
-gbm.simulate(paths=100, show=True)
+        Returns:
+            float: The expected return over the time horizon T.
+        """
+        return self.mu * self.T
+    

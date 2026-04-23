@@ -47,3 +47,30 @@ def random_bernoulli(size: int | tuple[int, int], p: float = 0.5, seed: int | No
     rng = np.random.default_rng(seed)
     return rng.binomial(size=size, n=1, p=p)
 
+def paths_to_returns(paths: np.ndarray) -> np.ndarray:
+    """Convert price paths to returns.
+
+    Args:
+        paths (np.ndarray): A 2D array of shape (paths, N+1) containing the simulated paths of the GBM process.
+
+    Returns:
+        np.ndarray: A 1D array of shape (paths,) containing the aggregate returns for each path.
+    """
+    return (paths[:, -1] - paths[:, 0]) / paths[:, 0]
+
+
+def value_at_risk(returns: np.ndarray, confidence_level: float = 0.95) -> float:
+    """Calculate the Value at Risk (VaR) of a portfolio.
+
+    Args:
+        returns (np.ndarray): An array of portfolio returns.
+        confidence_level (float, optional): The confidence level for VaR calculation. Defaults to 0.95.
+
+    Returns:
+        float: The Value at Risk (VaR) at the specified confidence level.
+    """
+    
+    if not 0 < confidence_level < 1:
+        raise ValueError("Confidence level must be between 0 and 1.")
+    
+    return -np.percentile(returns, (1 - confidence_level) * 100)
