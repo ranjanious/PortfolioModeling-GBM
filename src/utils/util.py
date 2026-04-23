@@ -1,4 +1,6 @@
 import numpy as np
+import csv
+from typing import Tuple
 
 def random_normal(size: tuple[int, int] | int, mean: float = 0.0, std: float = 1.0, seed: int | None = None) -> np.ndarray:
     """Generate a random number from a normal distribution.
@@ -74,3 +76,35 @@ def value_at_risk(returns: np.ndarray, confidence_level: float = 0.95) -> float:
         raise ValueError("Confidence level must be between 0 and 1.")
     
     return -np.percentile(returns, (1 - confidence_level) * 100)
+
+
+
+def csv_to_numpy_with_dates(filepath: str) -> Tuple[np.ndarray, np.ndarray]:
+    """Load a CSV file with columns Date,Open,High,Low,Close,Adj Close,Volume into a numpy array.
+    Returns a tuple (dates, data) where dates is a numpy array of date strings and data is a 2D numpy array of floats.
+    Each row corresponds to a timestep (date).
+    """
+    dates = []
+    data = []
+    with open(filepath, 'r', newline='') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            dates.append(row['Date'])
+            # Extract Open, High, Low, Close, Adj Close, Volume as floats
+            data.append([
+                float(row['Open']),
+                float(row['High']),
+                float(row['Low']),
+                float(row['Close']),
+                float(row['Adj Close']),
+                float(row['Volume'])
+            ])
+    return np.array(dates), np.array(data, dtype=float)
+
+
+def extract_daily_open(data: np.ndarray) -> np.ndarray:
+    """Given a 2D numpy array as returned by csv_to_numpy_with_dates (data),
+    return a 1D numpy array of the daily open prices.
+    """
+    return data[:, 0]
+

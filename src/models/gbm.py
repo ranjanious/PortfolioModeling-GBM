@@ -63,3 +63,5 @@ class GBM:
         """
         return self.mu * self.T
     
+    
+    
