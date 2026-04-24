@@ -35,6 +35,27 @@ Launch notebooks with:
 jupyter lab
 ```
 
+## Data Pull Scripts
+
+Create a local `.env` file (do not commit it):
+
+```bash
+cp .env.example .env
+# then set FRED_API_KEY in .env
+```
+
+Run yfinance pull:
+
+```bash
+python src/yfinance_pull.py
+```
+
+Run FRED pull (default: UNRATE, CPIAUCSL, DGS10, gap-filled to business days):
+
+```bash
+python src/fred_pull.py
+```
+
 ## Branching Convention
 
 | Branch                   | Owner                  | Purpose                                              |
