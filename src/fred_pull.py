@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import argparse
+from datetime import datetime, timezone
 import os
 import time
 
@@ -60,6 +61,29 @@ def save_csv(df: pd.DataFrame, series_id: str, output_dir: Path) -> Path:
     return output_path
 
 
+def build_metadata_row(fred: Fred, series_id: str, pull_date: str) -> dict[str, str]:
+    info = fred.get_series_info(series_id)
+    return {
+        "series_id": series_id,
+        "description": str(info.get("title", "")),
+        "frequency": str(info.get("frequency", "")),
+        "units": str(info.get("units", "")),
+        "source": f"https://fred.stlouisfed.org/series/{series_id}",
+        "pull_date": pull_date,
+    }
+
+
+def save_metadata_csv(metadata_rows: list[dict[str, str]], output_dir: Path) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    metadata_df = pd.DataFrame(
+        metadata_rows,
+        columns=["series_id", "description", "frequency", "units", "source", "pull_date"],
+    )
+    output_path = output_dir / "fred_metadata.csv"
+    metadata_df.to_csv(output_path, index=False)
+    return output_path
+
+
 def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Download FRED series and save cleaned no-gap CSVs to /data."
@@ -102,6 +126,8 @@ def main() -> None:
     print(f"Gap-fill frequency: {args.freq}")
 
     failed_series: list[str] = []
+    metadata_rows: list[dict[str, str]] = []
+    pull_date = datetime.now(timezone.utc).date().isoformat()
 
     for series_id in args.series:
         sid = series_id.upper()
@@ -109,6 +135,7 @@ def main() -> None:
             series = fetch_series(fred, sid, retries=args.retries)
             cleaned_df = clean_series(series, target_freq=args.freq)
             saved_path = save_csv(cleaned_df, sid, output_dir)
+            metadata_rows.append(build_metadata_row(fred, sid, pull_date=pull_date))
             print(f"Saved {sid}: {saved_path}")
         except Exception as exc:
             failed_series.append(sid)
@@ -118,6 +145,8 @@ def main() -> None:
         failed_csv = ", ".join(failed_series)
         raise RuntimeError(f"Completed with failures. Could not fetch: {failed_csv}")
 
+    metadata_path = save_metadata_csv(metadata_rows, output_dir)
+    print(f"Saved metadata: {metadata_path}")
     print("Done.")
 
 
