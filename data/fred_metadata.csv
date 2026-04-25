@@ -1,0 +1,4 @@
+series_id,description,frequency,units,source,pull_date
+UNRATE,Unemployment Rate,Monthly,Percent,https://fred.stlouisfed.org/series/UNRATE,2026-04-24
+CPIAUCSL,Consumer Price Index for All Urban Consumers: All Items in U.S. City Average,Monthly,Index 1982-1984=100,https://fred.stlouisfed.org/series/CPIAUCSL,2026-04-24
+DGS10,"Market Yield on U.S. Treasury Securities at 10-Year Constant Maturity, Quoted on an Investment Basis",Daily,Percent,https://fred.stlouisfed.org/series/DGS10,2026-04-24
