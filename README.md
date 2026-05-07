@@ -56,6 +56,23 @@ Run FRED pull (default: UNRATE, CPIAUCSL, DGS10, gap-filled to business days):
 python src/fred_pull.py
 ```
 
+Compute equity metrics from existing CSVs (log-returns, rolling 30-day volatility, and 5x5 correlation matrix):
+
+```bash
+python src/compute_metrics.py
+```
+
+Outputs are written to `/results/` as:
+- `{TICKER}_log_returns.csv`
+- `{TICKER}_rolling_volatility_30d.csv`
+- `correlation_matrix_5x5.csv`
+
+Run the equity data validation notebook (schema, date ranges, missing values, summary stats):
+
+```bash
+jupyter nbconvert --to notebook --execute --inplace notebooks/validate_equities.ipynb
+```
+
 ## Branching Convention
 
 | Branch                   | Owner                  | Purpose                                              |
