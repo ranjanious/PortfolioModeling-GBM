@@ -1,120 +1,152 @@
 from models.gbm import GBM
-from utils.util import value_at_risk, paths_to_returns, extract_daily_open, csv_to_numpy_with_dates
+from utils.util import (
+    value_at_risk,
+    paths_to_returns,
+    extract_daily_open,
+    csv_to_numpy_with_dates,
+    calibrate_from_csv,
+    calibrate_portfolio_from_csvs,
+)
 import matplotlib.pyplot as plt
 import numpy as np
 import os
 
 
-
-def compare_hist_to_gbm(file: str, num_sims: int = 500, show: bool = True) -> None:
-    """Compare historical stock price data to a simulated GBM path.
+def simulate_gbm(
+    S0: float,
+    mu: float,
+    sigma: float,
+    T: float = 1.0,
+    N: int = 252,
+    paths: int = 1000,
+    seed: int | None = None,
+) -> np.ndarray:
+    """Run a GBM simulation and return simulated price paths.
 
     Args:
-        file (str): The path to the CSV file containing historical stock price data.
-        num_sims (int, optional): Number of simulated paths. Defaults to 500.
-        show (bool, optional): Whether to display the plot. Defaults to True.
+        S0 (float): Initial asset price.
+        mu (float): Annualised drift.
+        sigma (float): Annualised volatility.
+        T (float): Time horizon in years. Defaults to 1.0.
+        N (int): Number of time steps. Defaults to 252 (trading days).
+        paths (int): Number of Monte-Carlo paths. Defaults to 1000.
+        seed (int | None): RNG seed for reproducibility. Defaults to None.
+
+    Returns:
+        np.ndarray: Shape (paths, N+1) array of simulated price paths.
     """
-    
-    # Load historical data
-    dates, data = csv_to_numpy_with_dates(file)
-    open_prices = extract_daily_open(data)
-    print(f"Loaded {len(dates)} historical data points from {file}.")
+    gbm = GBM(S0=S0, mu=mu, sigma=sigma, T=T, N=N, seed=seed)
+    return gbm.simulate(paths=paths, show=False)
 
 
-    #for debug
-    print(f"First 5 dates: {dates[:5]}")
-    print(f"First 5 open prices: {open_prices[:5]}")
+def simulate_portfolio(
+    assets: list[tuple[float, float, float]],
+    S0: float = 100.0,
+    T: float = 1.0,
+    N: int = 252,
+    paths: int = 1000,
+    seed: int | None = None,
+) -> np.ndarray:
+    """Simulate a weighted portfolio of GBM assets and return the portfolio
+    return distribution across all Monte-Carlo paths.
 
-    # Use the last 4 years for mean/volatility, predict the last year
-    trading_days = 252
-    total_days = len(open_prices)
-    if total_days < 5 * trading_days:
-        raise ValueError("Not enough data for 5 years (need at least 1260 trading days)")
+    Each asset is simulated independently via simulate_gbm(), its per-path
+    returns are computed, and the weighted sum gives the portfolio return for
+    each path.
 
-    # Indices for last 5 years
-    idx_4y_start = total_days - trading_days * 5
-    idx_1y_start = total_days - trading_days
+    Args:
+        assets (list[tuple[float, float, float]]): A list of (mu, sigma, weight)
+            tuples — one per asset.  Weights need not sum to 1; they are
+            normalised internally.
+        S0 (float): Common initial price for all assets. Defaults to 100.0.
+        T (float): Time horizon in years. Defaults to 1.0.
+        N (int): Number of time steps. Defaults to 252.
+        paths (int): Number of Monte-Carlo paths. Defaults to 1000.
+        seed (int | None): Base RNG seed.  Each asset receives a
+            deterministically offset seed so paths are independent.
 
-    # Use years 1-4 for stats, year 5 for prediction
-    prices_4y = open_prices[idx_4y_start:idx_1y_start]
-    returns_4y = np.diff(prices_4y) / prices_4y[:-1]
-    mean_return = float(np.mean(returns_4y) * trading_days)
-    volatility = float(np.std(returns_4y) * np.sqrt(trading_days))
-    print(f"Calculated mean return (annualized): {mean_return:.4f}, volatility (annualized): {volatility:.4f} from last 4 years.")
+    Returns:
+        np.ndarray: Shape (paths,) array of weighted portfolio returns.
 
-    # Simulate GBM for the last year
-    S0 = open_prices[idx_1y_start]
-    gbm = GBM(S0=S0, mu=mean_return, sigma=volatility, T=1.0, N=trading_days)
-    simulated_paths = gbm.simulate(paths=num_sims, show=False)
+    Raises:
+        ValueError: If assets is empty or any weight is negative.
+    """
+    if not assets:
+        raise ValueError("assets list must contain at least one (mu, sigma, weight) tuple.")
 
-    
+    mus, sigmas, weights = zip(*assets)
+    weights = np.array(weights, dtype=float)
 
-    # Plot historical vs simulated
-    if show:
-        plt.figure(figsize=(12, 6))
-        # Use a colormap for colorful faded paths
-        cmap = plt.get_cmap('tab20', simulated_paths.shape[0])
-        simulated_returns = paths_to_returns(simulated_paths)
-        var_95 = value_at_risk(simulated_returns, confidence_level=0.95)
-        # Find the path closest to the 95% VaR
-        var_idx = np.argmin(np.abs(simulated_returns + var_95))
-        var_area_color = 'blue'
-        # Draw all simulated paths
-        for i in range(simulated_paths.shape[0]):
-            plt.plot(
-                dates[idx_1y_start:],
-                simulated_paths[i][1:],
-                color=cmap(i) if i != var_idx else cmap(i),
-                alpha=0.15,
-                linewidth=1
-            )
+    if np.any(weights < 0):
+        raise ValueError("All weights must be non-negative.")
 
-        # Draw a horizontal VaR area at the final value of the VaR path
-        var_final_value = simulated_paths[var_idx, -1]
-        plt.fill_between(
-            dates[idx_1y_start:],
-            0,
-            var_final_value,
-            color=var_area_color,
-            alpha=0.3,
-            zorder=5,
-            label='VaR Area'
+    total_weight = weights.sum()
+    if total_weight == 0:
+        raise ValueError("Sum of weights must be greater than zero.")
+    weights = weights / total_weight  # normalise
+
+    portfolio_returns = np.zeros(paths)
+
+    for i, (mu, sigma, w) in enumerate(zip(mus, sigmas, weights)):
+        asset_seed = (seed + i) if seed is not None else None
+        price_paths = simulate_gbm(
+            S0=S0, mu=mu, sigma=sigma, T=T, N=N, paths=paths, seed=asset_seed
         )
-        # Plot the expected value (mean path)
-        mean_path = np.mean(simulated_paths, axis=0)
-        plt.plot(dates[idx_1y_start:], mean_path[1:], color='tab:red', alpha=0.7, linewidth=2, label='Expected Value (Mean Path)')
-        # Plot actual last year prices
-        plt.plot(dates[idx_1y_start:], open_prices[idx_1y_start:], label='Historical Last Year', color='tab:blue')
-        # Extract stock name from file path (e.g., 'AAPL' from 'AAPL_daily_5y.csv')
-        stock_name = os.path.basename(file).split('_')[0].upper()
-        plt.title(f'{stock_name}: Historical Last Year vs Simulated GBM Paths')
-        plt.xlabel('Date')
-        plt.ylabel('Price')
-        plt.legend()
-        # Make x-axis ticks sparse and format dates
-        ax = plt.gca()
-        ax.set_xticks(ax.get_xticks()[::21])  # Show roughly every month (21 trading days)
-        for label in ax.get_xticklabels():
-            label.set_rotation(45)
-        plt.tight_layout()
-        # Save the plot instead of showing it
-        output_dir = os.path.join(os.path.dirname(__file__), '../tests')
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, f'{stock_name}_gbm_simulation_plot.png')
-        plt.savefig(output_path)
-        print(f"Plot saved to {output_path}")
+        asset_returns = paths_to_returns(price_paths)  # shape (paths,)
+        portfolio_returns += w * asset_returns
+
+    return portfolio_returns
 
 
-    #metrics
-    actual_returns = paths_to_returns(open_prices[idx_1y_start:].reshape(1, -1))
-    simulated_returns = paths_to_returns(simulated_paths)
-    
-    print(f"Actual last year return: {actual_returns.mean():.4f}")
-    print(f"Simulated last year return: {simulated_returns.mean():.4f}")
-    print(f"Simulated last year VaR (95%): {value_at_risk(simulated_returns, confidence_level=0.95):.4f}")
+def plot_portfolio_distribution(
+    portfolio_returns: np.ndarray,
+    title: str = "Portfolio Return Distribution",
+    confidence_level: float = 0.95,
+    bins: int = 60,
+    save_path: str | None = None,
+    show: bool = True,
+) -> None:
+    """Plot a histogram of the simulated portfolio return distribution with
+    VaR and CVaR overlays.
 
-    print("difference in mean return:", abs(actual_returns.mean() - simulated_returns.mean()))
+    Args:
+        portfolio_returns (np.ndarray): Shape (paths,) array as produced by
+            simulate_portfolio().
+        title (str): Plot title.
+        confidence_level (float): Confidence level for VaR / CVaR lines.
+            Defaults to 0.95.
+        bins (int): Number of histogram bins. Defaults to 60.
+        save_path (str | None): If given, figure is saved here.
+        show (bool): Whether to call plt.show(). Defaults to True.
+    """
+    var = value_at_risk(portfolio_returns, confidence_level=confidence_level)
+    tail_mask = portfolio_returns <= np.percentile(
+        portfolio_returns, (1 - confidence_level) * 100
+    )
+    cvar = -float(portfolio_returns[tail_mask].mean())
 
-for file in ['../data/AAPL_daily_5y.csv', '../data/MSFT_daily_5y.csv', '../data/GOOGL_daily_5y.csv', '../data/MSFT_daily_5y.csv', '../data/TSLA_daily_5y.csv']:
-    print(f"\nComparing historical data to GBM simulation for {file}...")
-    compare_hist_to_gbm(file, num_sims=1000)
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.hist(portfolio_returns, bins=bins, color="steelblue", edgecolor="white",
+            alpha=0.85, label="Simulated returns")
+    ax.axvline(-var, color="crimson", linewidth=2,
+               label=f"VaR {int(confidence_level * 100)}%  = {var:.2%}")
+    ax.axvline(-cvar, color="darkorange", linewidth=2, linestyle="--",
+               label=f"CVaR {int(confidence_level * 100)}% = {cvar:.2%}")
+    ax.axvline(float(portfolio_returns.mean()), color="limegreen", linewidth=2,
+               linestyle=":", label=f"Mean return = {portfolio_returns.mean():.2%}")
+
+    ax.set_title(title, fontsize=14)
+    ax.set_xlabel("Portfolio Return")
+    ax.set_ylabel("Frequency")
+    ax.legend()
+    fig.tight_layout()
+
+    if save_path:
+        os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
+        fig.savefig(save_path, dpi=150)
+        print(f"Plot saved to {save_path}")
+    if show:
+        plt.show()
+    plt.close(fig)
+
+
