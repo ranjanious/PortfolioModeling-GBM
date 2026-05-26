@@ -8,7 +8,54 @@ import pandas as pd
 import yfinance as yf
 
 
-DEFAULT_TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]
+# ── Expanded equity universe — 30 stocks across 10 sectors ──────────────────
+# Addressing Robert's feedback (May 2026): original 5 tech-sector stocks are
+# correlated. This expanded list adds sector diversification and increases the
+# cross-section for the TCR~kurtosis regression.
+EQUITY_UNIVERSE: dict[str, str] = {
+    # Technology (5)
+    "AAPL":  "Technology",
+    "MSFT":  "Technology",
+    "GOOGL": "Technology",
+    "NVDA":  "Technology",
+    "AMD":   "Technology",
+    # Consumer Discretionary (4)
+    "AMZN":  "Consumer Discretionary",
+    "TSLA":  "Consumer Discretionary",
+    "NKE":   "Consumer Discretionary",
+    "MCD":   "Consumer Discretionary",
+    # Financials (4)
+    "JPM":   "Financials",
+    "BAC":   "Financials",
+    "GS":    "Financials",
+    "BRK-B": "Financials",
+    # Healthcare (3)
+    "JNJ":   "Healthcare",
+    "UNH":   "Healthcare",
+    "PFE":   "Healthcare",
+    # Energy (3)
+    "XOM":   "Energy",
+    "CVX":   "Energy",
+    "COP":   "Energy",
+    # Industrials (3)
+    "BA":    "Industrials",
+    "CAT":   "Industrials",
+    "HON":   "Industrials",
+    # Communication Services (3)
+    "META":  "Communication Services",
+    "NFLX":  "Communication Services",
+    "DIS":   "Communication Services",
+    # Consumer Staples (2)
+    "PG":    "Consumer Staples",
+    "KO":    "Consumer Staples",
+    # Utilities (1)
+    "NEE":   "Utilities",
+    # Real Estate (2)
+    "AMT":   "Real Estate",
+    "PLD":   "Real Estate",
+}
+
+DEFAULT_TICKERS = list(EQUITY_UNIVERSE.keys())
 REQUIRED_COLUMNS = ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
 
 
@@ -17,7 +64,6 @@ def clean_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     if cleaned.empty:
         raise ValueError("Received empty price data after download.")
 
-    # Ensure index is datetime, timezone-naive, sorted, and unique.
     cleaned.index = pd.to_datetime(cleaned.index, errors="coerce")
     cleaned = cleaned[~cleaned.index.isna()]
     if getattr(cleaned.index, "tz", None) is not None:
@@ -25,16 +71,13 @@ def clean_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     cleaned = cleaned.sort_index()
     cleaned = cleaned[~cleaned.index.duplicated(keep="last")]
 
-    # Keep expected OHLCV columns in a stable order.
     available = [col for col in REQUIRED_COLUMNS if col in cleaned.columns]
     cleaned = cleaned[available]
 
-    # Reindex to business days to make date gaps explicit, then fill.
     full_business_days = pd.date_range(cleaned.index.min(), cleaned.index.max(), freq="B")
     cleaned = cleaned.reindex(full_business_days)
     cleaned.index.name = "Date"
 
-    # Fill missing values in a conservative order.
     cleaned = cleaned.ffill().bfill()
     cleaned = cleaned.reset_index()
     cleaned["Date"] = cleaned["Date"].dt.strftime("%Y-%m-%d")
@@ -47,7 +90,6 @@ def download_ticker_data(ticker: str, period: str, interval: str) -> pd.DataFram
 
     for attempt in range(1, 4):
         try:
-            # Primary path: batch-style download.
             df = yf.download(
                 tickers=ticker,
                 period=period,
@@ -58,14 +100,12 @@ def download_ticker_data(ticker: str, period: str, interval: str) -> pd.DataFram
                 timeout=30,
             )
 
-            # Fallback path: direct ticker history.
             if df.empty:
                 df = yf.Ticker(ticker).history(period=period, interval=interval, auto_adjust=False)
 
             if df.empty:
                 raise ValueError(f"No data returned for ticker '{ticker}'.")
 
-            # yfinance can return a MultiIndex in some cases; flatten if needed.
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
 
@@ -81,6 +121,7 @@ def download_ticker_data(ticker: str, period: str, interval: str) -> pd.DataFram
 
 def save_csv(df: pd.DataFrame, ticker: str, output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
+    # Sanitise ticker for filename (BRK-B -> BRK-B, kept as-is)
     output_path = output_dir / f"{ticker.upper()}_daily_5y.csv"
     df.to_csv(output_path, index=False)
     return output_path
@@ -88,24 +129,19 @@ def save_csv(df: pd.DataFrame, ticker: str, output_dir: Path) -> Path:
 
 def parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Download 5-year daily OHLCV data for selected tickers and save cleaned CSVs to /data."
+        description=(
+            "Download 5-year daily OHLCV data for the 30-stock expanded equity universe "
+            "and save cleaned CSVs to /data. Run with no arguments to pull all 30 tickers."
+        )
     )
     parser.add_argument(
         "--tickers",
-        nargs='+',
+        nargs="+",
         default=DEFAULT_TICKERS,
-        help="Space-separated ticker symbols. Default: AAPL MSFT GOOGL AMZN TSLA",
+        help="Space-separated ticker symbols. Default: all 30 equities in EQUITY_UNIVERSE.",
     )
-    parser.add_argument(
-        "--period",
-        default="5y",
-        help="yfinance period window. Default: 5y",
-    )
-    parser.add_argument(
-        "--interval",
-        default="1d",
-        help="yfinance interval. Default: 1d",
-    )
+    parser.add_argument("--period",   default="5y",  help="yfinance period window. Default: 5y")
+    parser.add_argument("--interval", default="1d",  help="yfinance interval. Default: 1d")
     return parser.parse_args(argv)
 
 
@@ -113,10 +149,14 @@ def main() -> None:
     args = parse_args([])
 
     project_root = Path(__file__).resolve().parents[1]
-    output_dir = project_root / "data"
+    output_dir   = project_root / "data"
 
-    print("Starting yfinance download...")
-    print(f"Tickers: {', '.join(t.upper() for t in args.tickers)}")
+    print(f"Starting yfinance download — {len(args.tickers)} tickers...")
+    print("Equity universe:")
+    for t in args.tickers:
+        sector = EQUITY_UNIVERSE.get(t, "Unknown")
+        print(f"  {t:8} ({sector})")
+    print()
 
     failed_tickers: list[str] = []
 
@@ -125,16 +165,16 @@ def main() -> None:
         try:
             cleaned_df = download_ticker_data(ticker_upper, args.period, args.interval)
             saved_path = save_csv(cleaned_df, ticker_upper, output_dir)
-            print(f"Saved {ticker_upper}: {saved_path}")
+            n_obs      = len(cleaned_df)
+            sector     = EQUITY_UNIVERSE.get(ticker_upper, "Unknown")
+            print(f"  ✓ {ticker_upper:8} ({sector:28}) — {n_obs:,} obs → {saved_path.name}")
         except Exception as exc:
             failed_tickers.append(ticker_upper)
-            print(f"Failed {ticker_upper}: {exc}")
+            print(f"  ✗ {ticker_upper}: {exc}")
 
+    print(f"\nCompleted. {len(args.tickers)-len(failed_tickers)}/{len(args.tickers)} tickers saved.")
     if failed_tickers:
-        failed_csv = ", ".join(failed_tickers)
-        raise RuntimeError(f"Completed with failures. Could not fetch: {failed_csv}")
-
-    print("Done.")
+        raise RuntimeError(f"Failed tickers: {\', \'.join(failed_tickers)}")
 
 
 if __name__ == "__main__":
