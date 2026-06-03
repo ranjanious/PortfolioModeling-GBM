@@ -67,6 +67,17 @@ Outputs are written to `/results/` as:
 - `{TICKER}_rolling_volatility_30d.csv`
 - `correlation_matrix_5x5.csv`
 
+Compute rolling 30/60/90-day volatility and generate the multi-panel figure:
+
+```bash
+python src/compute_metrics.py --tickers AAPL MSFT GOOGL AMZN TSLA NVDA META --windows 30 60 90 --plot-rolling-vol
+```
+
+Additional rolling-vol outputs are written to `/results/` as:
+- `{TICKER}_rolling_volatility_60d.csv`
+- `{TICKER}_rolling_volatility_90d.csv`
+- `rolling_volatility_panels_7_equities.png`
+
 Run the equity data validation notebook (schema, date ranges, missing values, summary stats):
 
 ```bash

@@ -174,7 +174,7 @@ def main() -> None:
 
     print(f"\nCompleted. {len(args.tickers)-len(failed_tickers)}/{len(args.tickers)} tickers saved.")
     if failed_tickers:
-        raise RuntimeError(f"Failed tickers: {\', \'.join(failed_tickers)}")
+        raise RuntimeError(f"Failed tickers: {', '.join(failed_tickers)}")
 
 
 if __name__ == "__main__":
