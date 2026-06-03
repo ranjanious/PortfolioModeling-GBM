@@ -1,0 +1,89 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{siunitx}
+\usepackage{hyperref}
+\usepackage[round]{natbib}
+
+\graphicspath{{figures/}{../results/}}
+
+\title{Empirical Analysis of Equity Tail Risk Using Monte Carlo Simulation with Geometric Brownian Motion}
+\author{Ayush Ranjan \and Robert Ryan \and Nihan Anoop \and Dev R.}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+TODO: One paragraph summary. State the question (does GBM-implied tail risk match
+realized tail risk across an equity cross-section?), the data (30 equities, 5y daily
+returns, FRED macro controls), the method (Monte Carlo GBM with backtesting split),
+and the headline finding (TCR, regression on excess kurtosis, ES comparison).
+\end{abstract}
+
+\section{Introduction}\label{sec:introduction}
+TODO: Motivate tail-risk measurement, position GBM as the canonical baseline, state
+the empirical question and contribution.
+
+\section{Related Work}\label{sec:related}
+TODO: Brief review of VaR/ES literature, GBM as a calibration baseline, prior
+work on heavy-tail diagnostics and backtesting metrics.
+
+\section{Data}\label{sec:data}
+TODO: 30-equity universe across 10 sectors (see PR \#10), 5y daily OHLCV from
+\texttt{yfinance}, macro controls (CPIAUCSL, DGS10, UNRATE) from FRED.
+Reference \texttt{paper/section\_04\_data\_calibration.md} for the existing draft.
+
+\section{Methodology}\label{sec:methodology}
+\subsection{GBM Calibration}
+TODO: Drift and volatility estimation from log-returns.
+
+\subsection{Monte Carlo Simulation}
+TODO: 10{,}000 paths $\times$ 252 steps per equity; reference \texttt{src/models/gbm.py}.
+
+\subsection{Risk Metrics}
+\paragraph{Value at Risk.} Empirical quantile of simulated terminal log-returns at
+$\alpha \in \{0.95, 0.99\}$.
+\paragraph{Expected Shortfall.} Conditional mean of returns below VaR$_\alpha$.
+\paragraph{Tail Coverage Ratio.} Backtesting metric --- fraction of holdout returns
+breaching GBM-implied VaR threshold, normalised by the expected breach rate.
+
+\section{Results}\label{sec:results}
+\subsection{Distributional Diagnostics}
+TODO: QQ-plots, return histograms, summary statistics
+(see \texttt{results/qq\_all\_equities.png}, \texttt{results/summary\_stats\_30\_equities.csv}).
+
+\subsection{Risk Metric Estimates}
+TODO: Insert TCR table from \texttt{results/tcr\_results.csv}.
+
+\subsection{Cross-Sectional Regression}
+TODO: TCR $\sim$ excess kurtosis. Insert \texttt{results/tcr\_vs\_kurtosis\_scatter.png}
+and regression table from \texttt{results/tcr\_regression\_results.csv}.
+
+\subsection{ES Comparison}
+TODO: GBM-simulated vs realized ES, ratio per equity. Insert
+\texttt{results/es\_comparison\_bar.png}.
+
+\section{Discussion}\label{sec:discussion}
+TODO: Interpretation of TCR $<$ 1.0 across the holdout (calm year), positive but
+non-significant slope at $n=5$ (expected to firm up at $n=30$ after PR \#10).
+
+\section{Limitations}\label{sec:limitations}
+TODO: GBM's lognormal-tail assumption, single holdout year, equity-only universe,
+no jump or stochastic-volatility extensions.
+
+\section{Conclusion}\label{sec:conclusion}
+TODO: Restate finding and extensions.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}
