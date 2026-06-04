@@ -41,6 +41,11 @@ def parse_args(argv=None) -> argparse.Namespace:
         action="store_true",
         help="Compute sub-period correlation matrices and a side-by-side heatmap figure.",
     )
+    parser.add_argument(
+        "--macro-corr",
+        action="store_true",
+        help="Compute correlation table between FRED macro series and rolling volatility.",
+    )
     return parser.parse_args(argv)
 
 
@@ -212,6 +217,69 @@ def plot_subperiod_correlation_heatmaps(
     plt.close(fig)
 
 
+def compute_macro_correlations(
+    all_lr: dict[str, pd.Series],
+    data_dir: Path,
+    output_dir: Path,
+    window: int = 30,
+    min_periods: int = 30,
+) -> pd.DataFrame:
+    print(f"\nComputing correlations between FRED macro series and {window}-day rolling volatility...")
+    
+    # Load and merge FRED macro series
+    macro_series_names = ["CPIAUCSL", "DGS10", "UNRATE"]
+    macro_dfs = []
+    for name in macro_series_names:
+        csv_path = data_dir / f"{name}_fred.csv"
+        if not csv_path.exists():
+            print(f"  - Missing FRED file: {csv_path.name}")
+            continue
+        df = pd.read_csv(csv_path)
+        df["Date"] = pd.to_datetime(df["Date"])
+        df = df.set_index("Date").rename(columns={"value": name})
+        macro_dfs.append(df)
+        
+    if not macro_dfs:
+        print("  - No macro data found. Skipping macro correlation analysis.")
+        return pd.DataFrame()
+        
+    macro_df = pd.concat(macro_dfs, axis=1, join="inner")
+    
+    rows = []
+    for ticker, lr in all_lr.items():
+        # Compute rolling volatility
+        vol = compute_rolling_volatility(lr, window, min_periods).dropna()
+        # Convert vol index to datetime to align with macro_df
+        vol_df = pd.DataFrame({"vol": vol})
+        vol_df.index = pd.to_datetime(vol_df.index)
+        
+        # Merge with macro data
+        merged = vol_df.join(macro_df, how="inner")
+        if merged.empty:
+            continue
+            
+        corr_row = {"Ticker": ticker}
+        for name in macro_series_names:
+            if name in merged.columns:
+                corr_val = merged["vol"].corr(merged[name])
+                corr_row[name] = round(corr_val, 4)
+        rows.append(corr_row)
+        
+    if not rows:
+        print("  - No overlapping dates between rolling volatility and macro series.")
+        return pd.DataFrame()
+        
+    corr_df = pd.DataFrame(rows)
+    # Reorder columns to ensure consistency
+    cols = ["Ticker"] + [name for name in macro_series_names if name in corr_df.columns]
+    corr_df = corr_df[cols]
+    
+    output_path = output_dir / "macro_volatility_correlation.csv"
+    corr_df.to_csv(output_path, index=False)
+    print(f"  Saved macro correlation table -> {output_path.name}")
+    return corr_df
+
+
 def main() -> None:
     args       = parse_args()
     output_dir = args.output_dir
@@ -286,6 +354,10 @@ def main() -> None:
         output_path = output_dir / f"correlation_heatmaps_subperiods_{len(all_lr)}_equities.png"
         plot_subperiod_correlation_heatmaps(corr_matrices, output_path)
         print(f"  Saved sub-period heatmaps -> {output_path.name}")
+
+    if args.macro_corr:
+        window = args.windows[0] if args.windows else 30
+        compute_macro_correlations(all_lr, args.data_dir, output_dir, window, args.min_periods)
 
     if failed:
         print(f"\nFailed tickers: {failed}")
