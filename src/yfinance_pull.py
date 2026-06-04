@@ -146,7 +146,7 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 
 def main() -> None:
-    args = parse_args([])
+    args = parse_args()
 
     project_root = Path(__file__).resolve().parents[1]
     output_dir   = project_root / "data"
@@ -167,10 +167,10 @@ def main() -> None:
             saved_path = save_csv(cleaned_df, ticker_upper, output_dir)
             n_obs      = len(cleaned_df)
             sector     = EQUITY_UNIVERSE.get(ticker_upper, "Unknown")
-            print(f"  ✓ {ticker_upper:8} ({sector:28}) — {n_obs:,} obs → {saved_path.name}")
+            print(f"  + {ticker_upper:8} ({sector:28}) - {n_obs:,} obs -> {saved_path.name}")
         except Exception as exc:
             failed_tickers.append(ticker_upper)
-            print(f"  ✗ {ticker_upper}: {exc}")
+            print(f"  - {ticker_upper}: {exc}")
 
     print(f"\nCompleted. {len(args.tickers)-len(failed_tickers)}/{len(args.tickers)} tickers saved.")
     if failed_tickers:

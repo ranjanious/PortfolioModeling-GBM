@@ -6,6 +6,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
+import matplotlib as mpl
 
 from yfinance_pull import EQUITY_UNIVERSE
 
@@ -33,6 +35,11 @@ def parse_args(argv=None) -> argparse.Namespace:
         "--plot-rolling-vol",
         action="store_true",
         help="Generate a multi-panel rolling volatility figure for the selected tickers.",
+    )
+    parser.add_argument(
+        "--subperiod-corr",
+        action="store_true",
+        help="Compute sub-period correlation matrices and a side-by-side heatmap figure.",
     )
     return parser.parse_args(argv)
 
@@ -130,6 +137,77 @@ def compute_summary_stats(lr: pd.Series, ticker: str) -> dict:
     }
 
 
+def compute_subperiod_correlations(
+    all_lr: dict[str, pd.Series],
+    tickers: list[str],
+    output_dir: Path,
+) -> list[tuple[str, pd.DataFrame]]:
+    if len(all_lr) < 2:
+        return []
+
+    lr_df = pd.DataFrame(all_lr).dropna()
+    n = len(tickers)
+
+    subperiods = [
+        ("2019", "2019-01-01", "2019-12-31", f"correlation_matrix_{n}x{n}_2019.csv"),
+        ("Mar 2020", "2020-03-01", "2020-03-31", f"correlation_matrix_{n}x{n}_mar2020.csv"),
+        ("2022–2023", "2022-01-01", "2023-12-31", f"correlation_matrix_{n}x{n}_2022_2023.csv"),
+    ]
+
+    results: list[tuple[str, pd.DataFrame]] = []
+    for label, start, end, filename in subperiods:
+        window_df = lr_df.loc[start:end].dropna()
+        if window_df.empty:
+            print(f"  - Skipping {label}: no overlapping data in range {start} to {end}")
+            continue
+        corr = window_df.corr().reindex(index=tickers, columns=tickers)
+        corr.to_csv(output_dir / filename)
+        results.append((label, corr))
+        print(f"  Saved {label} correlation matrix -> {filename}")
+
+    return results
+
+
+def plot_subperiod_correlation_heatmaps(
+    corr_matrices: list[tuple[str, pd.DataFrame]],
+    output_path: Path,
+) -> None:
+    if not corr_matrices:
+        return
+
+    fig, axes = plt.subplots(1, len(corr_matrices), figsize=(6.5 * len(corr_matrices), 6))
+    if len(corr_matrices) == 1:
+        axes = [axes]
+
+    for ax, (label, corr) in zip(axes, corr_matrices):
+        sns.heatmap(
+            corr,
+            ax=ax,
+            vmin=-1,
+            vmax=1,
+            cmap="coolwarm",
+            square=True,
+            cbar=False,
+            linewidths=0.5,
+            linecolor="white",
+        )
+        ax.set_title(label)
+        ax.tick_params(axis="x", rotation=45)
+        ax.tick_params(axis="y", rotation=0)
+
+    # Shared colorbar
+    cbar_ax = fig.add_axes([0.92, 0.2, 0.015, 0.6])
+    norm = mpl.colors.Normalize(vmin=-1, vmax=1)
+    sm = mpl.cm.ScalarMappable(cmap="coolwarm", norm=norm)
+    sm.set_array([])
+    fig.colorbar(sm, cax=cbar_ax, label="Correlation")
+    fig.suptitle("Cross-Asset Correlation Shifts Across Market Regimes", y=0.98)
+    fig.tight_layout(rect=[0, 0, 0.9, 0.95])
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=300)
+    plt.close(fig)
+
+
 def main() -> None:
     args       = parse_args()
     output_dir = args.output_dir
@@ -175,10 +253,10 @@ def main() -> None:
                 )
 
             summary_rows.append(compute_summary_stats(lr, ticker))
-            print(f"  ✓ {ticker}")
+            print(f"  + {ticker}")
         except Exception as exc:
             failed.append(ticker)
-            print(f"  ✗ {ticker}: {exc}")
+            print(f"  - {ticker}: {exc}")
 
     # Cross-asset correlation matrix (NxN, aligned on common dates)
     if len(all_lr) > 1:
@@ -186,18 +264,24 @@ def main() -> None:
         corr_matrix = lr_df.corr()
         n = len(all_lr)
         corr_matrix.to_csv(output_dir / f"correlation_matrix_{n}x{n}.csv")
-        print(f"\n  Saved {n}×{n} correlation matrix → correlation_matrix_{n}x{n}.csv")
+        print(f"\n  Saved {n}x{n} correlation matrix -> correlation_matrix_{n}x{n}.csv")
 
     # Summary statistics table
     if summary_rows:
         stats_df = pd.DataFrame(summary_rows)
         stats_df.to_csv(output_dir / "summary_stats_all_equities.csv", index=False)
-        print(f"  Saved summary stats → summary_stats_all_equities.csv")
+        print(f"  Saved summary stats -> summary_stats_all_equities.csv")
 
     if args.plot_rolling_vol:
-        output_path = output_dir / "rolling_volatility_panels_7_equities.png"
+        output_path = output_dir / f"rolling_volatility_panels_{len(all_lr)}_equities.png"
         plot_rolling_volatility_panels(rolling_vols, output_path)
-        print(f"  Saved rolling volatility panels → {output_path.name}")
+        print(f"  Saved rolling volatility panels -> {output_path.name}")
+
+    if args.subperiod_corr:
+        corr_matrices = compute_subperiod_correlations(all_lr, args.tickers, output_dir)
+        output_path = output_dir / f"correlation_heatmaps_subperiods_{len(all_lr)}_equities.png"
+        plot_subperiod_correlation_heatmaps(corr_matrices, output_path)
+        print(f"  Saved sub-period heatmaps -> {output_path.name}")
 
     if failed:
         print(f"\nFailed tickers: {failed}")

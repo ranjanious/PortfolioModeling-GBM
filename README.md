@@ -78,6 +78,18 @@ Additional rolling-vol outputs are written to `/results/` as:
 - `{TICKER}_rolling_volatility_90d.csv`
 - `rolling_volatility_panels_7_equities.png`
 
+Compute sub-period correlation matrices and side-by-side heatmaps:
+
+```bash
+python src/compute_metrics.py --tickers AAPL MSFT GOOGL AMZN TSLA NVDA META --subperiod-corr
+```
+
+Sub-period outputs are written to `/results/` as:
+- `correlation_matrix_7x7_2019.csv`
+- `correlation_matrix_7x7_mar2020.csv`
+- `correlation_matrix_7x7_2022_2023.csv`
+- `correlation_heatmaps_subperiods_7_equities.png`
+
 Run the equity data validation notebook (schema, date ranges, missing values, summary stats):
 
 ```bash
