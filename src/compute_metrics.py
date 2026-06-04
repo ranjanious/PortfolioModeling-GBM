@@ -46,6 +46,11 @@ def parse_args(argv=None) -> argparse.Namespace:
         action="store_true",
         help="Compute correlation table between FRED macro series and rolling volatility.",
     )
+    parser.add_argument(
+        "--vol-regimes",
+        action="store_true",
+        help="Compute 252-day rolling volatility regimes using 75th percentile threshold.",
+    )
     return parser.parse_args(argv)
 
 
@@ -280,6 +285,40 @@ def compute_macro_correlations(
     return corr_df
 
 
+def compute_volatility_regimes(
+    all_lr: dict[str, pd.Series],
+    output_dir: Path,
+    window: int = 252,
+) -> pd.DataFrame:
+    print(f"\nComputing {window}-day rolling volatility regimes (75th percentile threshold)...")
+    
+    regime_dfs = []
+    for ticker, lr in all_lr.items():
+        # Compute rolling standard deviation (daily log return std)
+        vol = lr.rolling(window=window, min_periods=window).std().dropna()
+        if vol.empty:
+            continue
+            
+        threshold = vol.quantile(0.75)
+        # Classify daily regimes: 1 for High volatility, 0 for Low volatility
+        regime = np.where(vol >= threshold, "High", "Low")
+        regime_df = pd.DataFrame({"Date": vol.index, ticker: regime}).set_index("Date")
+        regime_dfs.append(regime_df)
+        
+    if not regime_dfs:
+        print("  - No regime data computed.")
+        return pd.DataFrame()
+        
+    # Align all tickers' regimes on common dates
+    regime_table = pd.concat(regime_dfs, axis=1, join="inner")
+    
+    # Save output to CSV
+    output_path = output_dir / "volatility_regimes.csv"
+    regime_table.reset_index().to_csv(output_path, index=False)
+    print(f"  Saved volatility regimes -> {output_path.name}")
+    return regime_table
+
+
 def main() -> None:
     args       = parse_args()
     output_dir = args.output_dir
@@ -358,6 +397,9 @@ def main() -> None:
     if args.macro_corr:
         window = args.windows[0] if args.windows else 30
         compute_macro_correlations(all_lr, args.data_dir, output_dir, window, args.min_periods)
+
+    if args.vol_regimes:
+        compute_volatility_regimes(all_lr, output_dir)
 
     if failed:
         print(f"\nFailed tickers: {failed}")
