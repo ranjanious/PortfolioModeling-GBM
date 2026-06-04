@@ -112,10 +112,14 @@ def plot_rolling_volatility_panels(
 
     handles, labels = axes[0].get_legend_handles_labels()
     if handles:
-        fig.legend(handles, labels, loc="upper center", ncol=6, frameon=False)
+        leg_y = 0.985 if n_rows > 10 else 0.95
+        fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, leg_y), ncol=6, frameon=False)
 
-    fig.suptitle("Rolling Volatility (30/60/90-day) Across Key Market Regimes", y=0.995)
-    fig.tight_layout(rect=[0, 0, 1, 0.97])
+    title_y = 0.995 if n_rows > 10 else 0.98
+    fig.suptitle("Rolling Volatility (30/60/90-day) Across Key Market Regimes", y=title_y)
+    
+    rect_top = 0.965 if n_rows > 10 else 0.92
+    fig.tight_layout(rect=[0, 0, 1, rect_top])
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_path, dpi=300)
     plt.close(fig)
